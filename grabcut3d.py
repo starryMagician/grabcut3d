@@ -1,14 +1,13 @@
 import cv2
 import SimpleITK as sitk
 import numpy as np 
-import os
 import time
-import math
 from k_means import kmeans
 from gcgraph import GCGraph
+from GMM3d import GMM
 
-#read dicom images
-def loadFile(filename):
+#用STK函数读取nii图像
+def loadFile(filename):  # filename: path of `.nii.gz` file
     ds = sitk.ReadImage(filename)
     img_array = sitk.GetArrayFromImage(ds)
     return img_array
@@ -16,55 +15,6 @@ def loadFile(filename):
 #空回调函数
 def nothing(x):
     pass
-
-#Gaussian Mixture Model
-class GMM:
-	'''The GMM: Gaussian Mixture Model algorithm'''
-	'''Each point in the image belongs to a GMM, and because each pixel owns
-		three channels: RGB, so each component owns three means, 9 covs and a weight.'''
-	
-	def __init__(self, k = 5):
-		'''k is the number of components of GMM'''
-		self.k = k
-		self.weights = np.asarray([0. for i in range(k)], dtype = 'float32') # Weight of each component
-		self.means = np.asarray([0. for i in range(k)], dtype = 'float32') # Means of each component
-		self.vars = np.asarray([0. for i in range(k)], dtype = 'float32') # vars of each component
-
-		self.pixel_counts = np.asarray([0 for i in range(k)]) # Count of pixels in each components
-		self.pixel_total_count = 0 # The total number of pixels in the GMM
-		
-		# The following parameter is assistant parameters for counting pixels and calc. params.
-		self._sums = np.asarray([0. for i in range(k)])
-
-	def _prob_pixel_component(self, pixel, ci):
-		'''Calculate the probability of each pixel belonging to the ci_th component of GMM'''
-		'''Using the formula of multivariate normal distribution'''
-		return 1/np.sqrt(self.vars[ci]) * np.exp(-0.5*math.pow(pixel-self.means[ci], 2)/self.vars[ci]) # gaussian distribution formula
-
-	def prob_pixel_GMM(self, pixel):	
-		'''Calculate the probability of each pixel belonging to this GMM, which is the sum of 
-			the prob. of the pixel belonging to each component * the weight of the component'''
-		'''Also the first term of Gibbs Energy(negative;)'''
-		return sum([self._prob_pixel_component(pixel, ci) * self.weights[ci] for ci in range(self.k)])
-
-	def most_likely_pixel_component(self, pixel):
-		'''Calculate the most likely component that the pixel belongs to'''
-		prob = np.asarray([self._prob_pixel_component(pixel, ci) for ci in range(self.k)])
-		return prob.argmax(0)
-	
-	def learning(self, components):
-		for ci in range(self.k):
-			print('length of conponent[',ci,']:', len(components[ci]))
-			self.means[ci] = components[ci].mean()
-			self.vars[ci] = components[ci].var()
-			if self.vars[ci] < 0.1:
-				self.vars[ci] += 1
-			self.pixel_counts[ci] = components[ci].size
-
-		self.pixel_total_count = self.pixel_counts.sum()
-		for ci in range(self.k):
-			self.weights[ci] = self.pixel_counts[ci]/self.pixel_total_count
-	
 
 class GCClient:
 	'''The engine of grabcut'''
@@ -340,42 +290,12 @@ class GCClient:
 
 		
 if __name__ == '__main__':
-	dir_name = '/Users/yann/Downloads/28204'
-	file_prefix = '600440935_20160318_1_1_P0160612101150_9_'
-	frames = 0
-
-	files = os.listdir(dir_name)
-	series = []
-	#check the amount of the slices
-	for file in files:
-		if file.find(file_prefix) != -1:
-			frames += 1
-			series.append(file)
-			if frames == 1:
-				img = loadFile(os.path.join(dir_name, file))
-				print('img.shape:', img.shape)
-				f, h, w = img.shape
-	#Initialize an array to store the slices
-	img_array = np.zeros([frames, h, w], dtype=img.dtype)
-	#sort the file name
-	series.sort(key = lambda x:int(x[-6:-4]) if x[-7] == '_' else int(x[-7:-4]))
-
-
-	#read all slices
-	for index, file in enumerate(series):
-		img_array[index, :, :] = loadFile(os.path.join(dir_name, file))
+	path = '/workspaces/grabcut3d/test/BraTS-GLI-00000-000-t1c.nii.gz'
+	img_array = loadFile(path)
+	d, h, w = img_array.shape
 		
 	img_array_uint8 = ((img_array - img_array.min()) * 1.0 / (img_array.max()-img_array.min()) * 255).astype('uint8')
 	img_array_uint8 = img_array_uint8[85:120,:,:] 
-
-
-	#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-	# img_array_uint8 = np.zeros([15, 135, 240], dtype = 'uint8')
-	# temp = cv2.imread('/Users/yann/毕业设计/mycode/grabcut3d/test/bull.jpg', 0)
-	# temp = temp[::2,::2]
-	# print('temp:', temp.shape)
-	# img_array_uint8[:,:,:] = temp
-	# frames, h, w = img_array_uint8.shape 
 
 	start = time.time()
 	GC = GCClient(img_array_uint8, k = 5)
@@ -400,7 +320,7 @@ For finer touchups, mark foreground and background after pressing any key of 0~3
 3: Probable foreground
 ********************************************************************************'''
 	print(tips)
-	output = np.zeros([frames, h, w], dtype='uint8')
+	output = np.zeros([d, h, w], dtype='uint8')
 	index1 = 0
 	while(1): 
 		cv2.imshow('DicomReader', GC.img3d_2[index1].astype('uint8'))
